@@ -1,0 +1,7 @@
+﻿services:
+  echowarehouse:
+    image: echowarehouse
+    build:
+      context: .
+      dockerfile: Dockerfile
+
