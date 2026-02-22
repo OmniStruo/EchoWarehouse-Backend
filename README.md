@@ -10,6 +10,8 @@ Modern, multiplatform warehouse management system with voice control powered by 
 [![Azure](https://img.shields.io/badge/Azure-Speech%20Services-0078D4?logo=microsoft-azure)](https://azure.microsoft.com/en-us/services/cognitive-services/speech-services/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+[![CodeQL Advanced](https://github.com/OmniStruo/EchoWarehouse-Backend/actions/workflows/codeql.yml/badge.svg?branch=main&event=push)](https://github.com/OmniStruo/EchoWarehouse-Backend/actions/workflows/codeql.yml)
+
 ---
 
 ## 📋 Table of Contents
