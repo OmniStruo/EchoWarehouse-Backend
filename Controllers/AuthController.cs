@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using EchoWarehouse.Models.DTOs.Auth;
-using EchoWarehouse.Services;
 using System.Security.Claims;
-using EchoWarehouse.Services.Interfaces;
+using EchoWarehouse.Services.Auth.Interfaces;
+using EchoWarehouse.Extensions.Helpers;
+using EchoWarehouse.Models.DTOs.Common;
+using EchoWarehouse.Validators;
 
 namespace EchoWarehouse.Controllers;
 
@@ -28,23 +30,22 @@ public class AuthController : ControllerBase
     /// </remarks>
     [HttpPost("register")]
     [AllowAnonymous]
-    public async Task<ActionResult<RegisterResponseDto>> Register([FromBody] RegisterRequestDto request)
+    public async Task<ActionResult> Register([FromBody] RegisterRequestDto request)
     {
         _logger.LogInformation($"Register attempt for username: {request.Username}");
         
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
-
-        var response = await _authService.RegisterAsync(request);
+        var result = await _authService.RegisterAsync(request);
         
-        if (!response.Success)
+        if (!result.Success)
         {
-            return BadRequest(response);
+            return BadRequest(new ApiErrorDto(
+                message: result.Message ?? ValidationErrorKeys.UnexpectedError,
+                status: 400,
+                details: result.Details
+            ));
         }
 
-        return Created(string.Empty, response);
+        return Created(string.Empty, result.Data);
     }
 
     /// <summary>
@@ -55,23 +56,22 @@ public class AuthController : ControllerBase
     /// </remarks>
     [HttpPost("login")]
     [AllowAnonymous]
-    public async Task<ActionResult<LoginResponseDto>> Login([FromBody] LoginRequestDto request)
+    public async Task<ActionResult> Login([FromBody] LoginRequestDto request)
     {
         _logger.LogInformation($"Login attempt for username: {request.Username}");
         
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
-
-        var response = await _authService.LoginAsync(request);
+        var result = await _authService.LoginAsync(request);
         
-        if (!response.Success)
+        if (!result.Success)
         {
-            return Unauthorized(response);
+            return Unauthorized(new ApiErrorDto(
+                message: result.Message ?? ValidationErrorKeys.UnexpectedError,
+                status: 401,
+                details: result.Details
+            ));
         }
 
-        return Ok(response);
+        return Ok(result.Data);
     }
 
     /// <summary>
@@ -82,23 +82,22 @@ public class AuthController : ControllerBase
     /// </remarks>
     [HttpPost("refresh")]
     [AllowAnonymous]
-    public async Task<ActionResult<RefreshTokenResponseDto>> RefreshToken([FromBody] RefreshTokenRequestDto request)
+    public async Task<ActionResult> RefreshToken([FromBody] RefreshTokenRequestDto request)
     {
         _logger.LogInformation("Token refresh attempt");
+   
+        var result = await _authService.RefreshTokenAsync(request.RefreshToken);
         
-        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+        if (!result.Success)
         {
-            return BadRequest(new { success = false });
+            return Unauthorized(new ApiErrorDto(
+                message: result.Message ?? ValidationErrorKeys.UnexpectedError,
+                status: 401,
+                details: result.Details
+            ));
         }
 
-        var response = await _authService.RefreshTokenAsync(request.RefreshToken);
-        
-        if (!response.Success)
-        {
-            return Unauthorized(response);
-        }
-
-        return Ok(response);
+        return Ok(result.Data);
     }
 
     /// <summary>
@@ -114,7 +113,7 @@ public class AuthController : ControllerBase
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
         if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
         {
-            return Unauthorized(new { message = "User not found in token" });
+            return ErrorResponseHelper.UnauthorizedError(ValidationErrorKeys.UserNotFound);
         }
 
         _logger.LogInformation($"Logout for user ID: {userId}");
@@ -123,10 +122,10 @@ public class AuthController : ControllerBase
         
         if (!success)
         {
-            return BadRequest(new { message = "Logout failed" });
+            return ErrorResponseHelper.BadRequestError(ValidationErrorKeys.FailedToLogoutUser);
         }
 
-        return Ok(new { message = "Logout successful" });
+        return Ok();
     }
 
     /// <summary>
@@ -141,40 +140,11 @@ public class AuthController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(token))
         {
-            return BadRequest(new { message = "Token is required" });
+            return ErrorResponseHelper.BadRequestError(ValidationErrorKeys.RequiredField);
         }
 
         var isValid = await _authService.ValidateTokenAsync(token);
         return Ok(new { valid = isValid });
-    }
-
-    /// <summary>
-    /// Get current user info
-    /// </summary>
-    /// <remarks>
-    /// Returns information about the currently authenticated user.
-    /// </remarks>
-    [HttpGet("getCurrentUser")]
-    [Authorize]
-    public ActionResult<object> GetCurrentUser()
-    {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-        var usernameClaim = User.FindFirst(ClaimTypes.Name);
-        var emailClaim = User.FindFirst(ClaimTypes.Email);
-        var roleClaim = User.FindFirst(ClaimTypes.Role);
-
-        if (userIdClaim == null)
-        {
-            return Unauthorized(new { message = "User not found in token" });
-        }
-
-        return Ok(new
-        {
-            id = userIdClaim.Value,
-            username = usernameClaim?.Value,
-            email = emailClaim?.Value,
-            role = roleClaim?.Value
-        });
     }
 }
 

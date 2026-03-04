@@ -3,10 +3,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using EchoWarehouse.Data;
-using EchoWarehouse.Services;
-using EchoWarehouse.Services.Interfaces;
+using EchoWarehouse.Extensions.Filters;
 using EchoWarehouse.Repositories.Auth;
 using EchoWarehouse.Repositories.Interfaces;
+using EchoWarehouse.Services.Auth;
+using EchoWarehouse.Services.Auth.Interfaces;
+using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -51,8 +53,37 @@ builder.Services.AddScoped<EchoWarehouseDbContext>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 
+// Add CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowLocalhost3000", policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:3000", 
+                "https://localhost:3000",
+                "http://localhost:5173",  // Vite default port
+                "https://localhost:5173"
+              )
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials()
+              .WithExposedHeaders("*")
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
+    });
+});
+
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.SuppressModelStateInvalidFilter = true;
+});
+
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<ValidationFilter>();
+});
 
 var app = builder.Build();
 
@@ -61,6 +92,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     app.MapScalarApiReference();
 }
+
+// CORS must be called before UseHttpsRedirection, UseAuthentication, and UseAuthorization
+app.UseCors("AllowLocalhost3000");
 
 app.UseHttpsRedirection();
 

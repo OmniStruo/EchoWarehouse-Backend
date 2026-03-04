@@ -1,13 +1,14 @@
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Text;
 using EchoWarehouse.Extensions.Helpers.Auth;
 using Microsoft.IdentityModel.Tokens;
 using EchoWarehouse.Models.DTOs.Auth;
-using EchoWarehouse.Services.Interfaces;
+using EchoWarehouse.Models.DTOs.Common;
+using EchoWarehouse.Services.Auth.Interfaces;
 using EchoWarehouse.Repositories.Interfaces;
+using EchoWarehouse.Validators;
 
-namespace EchoWarehouse.Services;
+namespace EchoWarehouse.Services.Auth;
 
 public class AuthService : IAuthService
 {
@@ -30,19 +31,14 @@ public class AuthService : IAuthService
         _refreshTokenExpiryDays = int.TryParse(configuration["Jwt:RefreshTokenExpiryDays"], out var days) ? days : 7;
     }
 
-    public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
+    public async Task<Result<LoginResponseDto>> LoginAsync(LoginRequestDto request)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
-            {
-                return new LoginResponseDto { Success = false, User = null };
-            }
-
             var user = await _users.GetByUsernameAsync(request.Username);
             if (user == null || !user.IsActive || !AuthHelpers.VerifyPassword(request.Password, user.PasswordHash))
             {
-                return new LoginResponseDto { Success = false, User = null };
+                return Result<LoginResponseDto>.ErrorResult(ValidationErrorKeys.InvalidCredentials);
             }
 
             var accessToken = AuthHelpers.GenerateAccessToken(user, _jwtSecret, _jwtIssuer, _jwtAudience, _accessTokenExpiryMinutes);
@@ -51,45 +47,29 @@ public class AuthService : IAuthService
 
             await _users.UpdateRefreshTokenAsync(user.Id, refreshToken, DateTime.UtcNow.AddDays(_refreshTokenExpiryDays));
 
-            return new LoginResponseDto
+            return Result<LoginResponseDto>.SuccessResult(new LoginResponseDto
             {
-                Success = true,
                 AccessToken = accessToken,
                 RefreshToken = refreshToken,
                 ExpiresAt = expiresAt,
                 User = AuthHelpers.MapUserToDto(user)
-            };
+            });
         }
-        catch
+        catch (Exception ex)
         {
-            return new LoginResponseDto { Success = false, User = null };
+            return Result<LoginResponseDto>.ErrorResult(ValidationErrorKeys.UnexpectedError);
         }
     }
 
-    public async Task<RegisterResponseDto> RegisterAsync(RegisterRequestDto request)
+    public async Task<Result<RegisterResponseDto>> RegisterAsync(RegisterRequestDto request)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(request.Username) ||
-                string.IsNullOrWhiteSpace(request.Email) ||
-                string.IsNullOrWhiteSpace(request.Password))
-            {
-                return new RegisterResponseDto { Success = false };
-            }
-
-            if (request.Password != request.PasswordConfirm)
-            {
-                return new RegisterResponseDto { Success = false };
-            }
-
-            if (request.Password.Length < 6)
-            {
-                return new RegisterResponseDto { Success = false };
-            }
-
             if (await _users.UserExistsAsync(request.Username, request.Email))
             {
-                return new RegisterResponseDto { Success = false };
+                return Result<RegisterResponseDto>.ErrorResult(
+                    ValidationErrorKeys.UserAlreadyExists
+                );
             }
 
             var newUser = new User
@@ -105,36 +85,31 @@ public class AuthService : IAuthService
             var newUserId = await _users.CreateUserAsync(newUser);
             if (newUserId == null)
             {
-                return new RegisterResponseDto { Success = false };
+                return Result<RegisterResponseDto>.ErrorResult(ValidationErrorKeys.FailedToCreateUser);
             }
 
             newUser.Id = newUserId.Value;
 
-            return new RegisterResponseDto
+            return Result<RegisterResponseDto>.SuccessResult(new RegisterResponseDto
             {
-                Success = true,
                 User = AuthHelpers.MapUserToDto(newUser)
-            };
+            });
         }
-        catch
+        catch (Exception ex)
         {
-            return new RegisterResponseDto { Success = false };
+            return Result<RegisterResponseDto>.ErrorResult(ValidationErrorKeys.UnexpectedError);
         }
     }
 
-    public async Task<RefreshTokenResponseDto> RefreshTokenAsync(string refreshToken)
+    public async Task<Result<RefreshTokenResponseDto>> RefreshTokenAsync(string refreshToken)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(refreshToken))
-            {
-                return new RefreshTokenResponseDto { Success = false };
-            }
 
             var user = await _users.GetByRefreshTokenAsync(refreshToken);
             if (user == null)
             {
-                return new RefreshTokenResponseDto { Success = false };
+                return Result<RefreshTokenResponseDto>.ErrorResult(ValidationErrorKeys.UserNotFound);
             }
 
             var newAccessToken = AuthHelpers.GenerateAccessToken(user, _jwtSecret, _jwtIssuer, _jwtAudience, _accessTokenExpiryMinutes);
@@ -143,17 +118,16 @@ public class AuthService : IAuthService
 
             await _users.UpdateRefreshTokenAsync(user.Id, newRefreshToken, DateTime.UtcNow.AddDays(_refreshTokenExpiryDays));
 
-            return new RefreshTokenResponseDto
+            return Result<RefreshTokenResponseDto>.SuccessResult(new RefreshTokenResponseDto
             {
-                Success = true,
                 AccessToken = newAccessToken,
                 RefreshToken = newRefreshToken,
                 ExpiresAt = expiresAt
-            };
+            });
         }
-        catch
+        catch (Exception ex)
         {
-            return new RefreshTokenResponseDto { Success = false };
+            return Result<RefreshTokenResponseDto>.ErrorResult(ValidationErrorKeys.UnexpectedError);
         }
     }
 
